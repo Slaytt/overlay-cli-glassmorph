@@ -5,18 +5,18 @@ struct ContentView: View {
     @State private var isHovering = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                HeaderBar(isHovering: $isHovering, model: model)
+        VStack(alignment: .leading, spacing: 0) {
+            HeaderBar(isHovering: $isHovering, model: model)
 
-                Divider()
-                    .overlay(
-                        LinearGradient(
-                            colors: [.orange.opacity(0.6), .clear],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
+            Divider()
+                .overlay(LinearGradient(
+                    colors: [.orange.opacity(0.6), .clear],
+                    startPoint: .leading, endPoint: .trailing
+                ))
 
+            if model.isDashboardMode {
+                DashboardView()
+            } else {
                 if model.sessions.isEmpty {
                     EmptyStateView()
                 } else {
@@ -45,7 +45,9 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .orange.opacity(0.2), radius: 30)
         .shadow(color: .black.opacity(0.5), radius: 24, x: 0, y: 14)
-        .onHover { hovering in withAnimation(.easeInOut(duration: 0.18)) { isHovering = hovering } }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.18)) { isHovering = hovering }
+        }
     }
 }
 
@@ -53,11 +55,10 @@ struct ContentView: View {
 
 struct HeaderBar: View {
     @Binding var isHovering: Bool
-    let model: TerminalOutputModel
+    @ObservedObject var model: TerminalOutputModel
 
     var body: some View {
         HStack(spacing: 8) {
-            // Dot animé selon état
             let running = model.sessions.last?.isRunning ?? false
             Circle()
                 .fill(running ? Color.orange : Color.green.opacity(0.8))
@@ -70,8 +71,7 @@ struct HeaderBar: View {
                 .foregroundStyle(.orange.opacity(0.9))
 
             if let cmd = model.sessions.last?.command {
-                Text("·")
-                    .foregroundStyle(.white.opacity(0.3))
+                Text("·").foregroundStyle(.white.opacity(0.3))
                 Text(cmd)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.55))
@@ -79,6 +79,22 @@ struct HeaderBar: View {
             }
 
             Spacer()
+
+            // Toggle Dashboard
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    model.isDashboardMode.toggle()
+                }
+            } label: {
+                Image(systemName: model.isDashboardMode ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(model.isDashboardMode ? 0.7 : 0.35))
+                    .padding(5)
+                    .background(model.isDashboardMode ? Color.orange.opacity(0.15) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help(model.isDashboardMode ? "Mode compact" : "Table de commandement")
 
             if isHovering {
                 HStack(spacing: 5) {
@@ -94,101 +110,6 @@ struct HeaderBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-    }
-}
-
-// ── Liste des sessions ────────────────────────────────────────────────────────
-
-struct SessionListView: View {
-    @ObservedObject var model: TerminalOutputModel
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(model.sessions) { session in
-                        SessionCard(session: session)
-                            .id(session.id)
-                    }
-                }
-                .padding(12)
-                .id("list-bottom")
-            }
-            .onChange(of: model.sessions.count) { _ in
-                withAnimation(.easeOut(duration: 0.15)) {
-                    proxy.scrollTo("list-bottom", anchor: .bottom)
-                }
-            }
-            .onChange(of: model.sessions.last?.output) { _ in
-                withAnimation(.easeOut(duration: 0.1)) {
-                    if let id = model.sessions.last?.id {
-                        proxy.scrollTo(id, anchor: .bottom)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ── Card par commande ─────────────────────────────────────────────────────────
-
-struct SessionCard: View {
-    let session: CommandSession
-
-    var statusColor: Color {
-        guard let code = session.exitCode else { return .orange }
-        return code == 0 ? .green : .red
-    }
-
-    var statusIcon: String {
-        guard let code = session.exitCode else { return "ellipsis" }
-        return code == 0 ? "checkmark" : "xmark"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Titre de la commande
-            HStack(spacing: 6) {
-                Image(systemName: statusIcon)
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(statusColor)
-                    .frame(width: 14, height: 14)
-                    .background(statusColor.opacity(0.15))
-                    .clipShape(Circle())
-
-                Text(session.command)
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-
-                Spacer()
-
-                Text(session.startTime, style: .time)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.25))
-            }
-
-            // Output nettoyé
-            if !session.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(session.output.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.white.opacity(0.04))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(statusColor.opacity(0.2), lineWidth: 1)
-                    )
-            }
-        }
-        .padding(10)
-        .background(.white.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(.white.opacity(0.07), lineWidth: 1)
-        )
     }
 }
 

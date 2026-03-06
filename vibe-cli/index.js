@@ -11,7 +11,6 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-// --- Connexion WebSocket vers l'app Swift ---
 function connectToHUD() {
   return new Promise((resolve) => {
     const ws = new WebSocket(WS_URL);
@@ -30,7 +29,6 @@ async function run() {
     ws.send(`$ ${args.join(" ")}\n`);
   }
 
-  // PTY : le process enfant croit tourner dans un vrai terminal
   const term = pty.spawn(args[0], args.slice(1), {
     name: "xterm-256color",
     cols: process.stdout.columns || 220,
@@ -39,10 +37,9 @@ async function run() {
     env: process.env,
   });
 
-  // Tout l'output du terminal (y compris TUI comme claude) passe ici
+  // PTY → terminal local + HUD
   term.onData((data) => {
-    process.stdout.write(data); // Afficher dans le terminal courant
-
+    process.stdout.write(data);
     if (hudAvailable && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
     }
@@ -57,19 +54,25 @@ async function run() {
     process.exit(exitCode ?? 0);
   });
 
-  // Forwarder les entrées clavier vers le process enfant (pour les TUI interactifs)
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
+  // ── Bidirectionnel : HUD → PTY ───────────────────────────────────────────
+  // Les boutons SwiftUI (Y/n, saisie) envoient du texte que l'on injecte
+  // directement dans le process enfant comme si c'était une vraie frappe clavier
+  if (hudAvailable) {
+    ws.on("message", (rawData) => {
+      const text = rawData.toString("utf8");
+      term.write(text);
+    });
   }
+
+  // Clavier local → PTY
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on("data", (data) => term.write(data.toString()));
 
-  // Adapter la taille du PTY si le terminal est redimensionné
   process.stdout.on("resize", () => {
     term.resize(process.stdout.columns, process.stdout.rows);
   });
 
-  // Propagation des signaux
   for (const sig of ["SIGINT", "SIGTERM"]) {
     process.on(sig, () => term.kill(sig));
   }

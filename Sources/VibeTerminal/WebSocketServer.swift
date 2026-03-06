@@ -27,7 +27,7 @@ class WebSocketServer: @unchecked Sendable {
         listener?.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                print("[VibeTerminal] Serveur WebSocket actif sur ws://localhost:8765")
+                print("[VibeTerminal] WebSocket actif sur ws://localhost:8765")
             case .failed(let error):
                 print("[VibeTerminal] Serveur en échec: \(error)")
             default:
@@ -42,16 +42,35 @@ class WebSocketServer: @unchecked Sendable {
         listener?.start(queue: .global(qos: .userInitiated))
     }
 
+    // ── Envoi vers tous les clients (Swift → Node) ────────────────────────────
+
+    func send(text: String) {
+        guard let data = text.data(using: .utf8) else { return }
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "vibe-send", metadata: [metadata])
+
+        for connection in connections where connection.state == .ready {
+            connection.send(
+                content: data,
+                contentContext: context,
+                isComplete: true,
+                completion: .idempotent
+            )
+        }
+    }
+
+    // ── Gestion des connexions entrantes ──────────────────────────────────────
+
     private func handle(_ connection: NWConnection) {
         connections.append(connection)
-        print("[VibeTerminal] Nouveau client connecté")
+        print("[VibeTerminal] Client connecté (\(connections.count) actif(s))")
 
         connection.stateUpdateHandler = { [weak self] state in
-            if case .failed(_) = state {
+            switch state {
+            case .failed, .cancelled:
                 self?.connections.removeAll { $0 === connection }
-            }
-            if case .cancelled = state {
-                self?.connections.removeAll { $0 === connection }
+            default:
+                break
             }
         }
 
@@ -59,20 +78,19 @@ class WebSocketServer: @unchecked Sendable {
         receive(from: connection)
     }
 
+    // ── Réception Node → Swift ────────────────────────────────────────────────
+
     private func receive(from connection: NWConnection) {
-        connection.receiveMessage { [weak self] data, context, isComplete, error in
-            if let error = error {
+        connection.receiveMessage { [weak self] data, _, _, error in
+            if let error {
                 print("[VibeTerminal] Erreur réception: \(error)")
                 return
             }
-
-            if let data = data, !data.isEmpty,
+            if let data, !data.isEmpty,
                let text = String(data: data, encoding: .utf8),
                let self {
                 Task { @MainActor in self.model.handleMessage(text) }
             }
-
-            // Continuer à écouter
             self?.receive(from: connection)
         }
     }

@@ -1,6 +1,7 @@
 import Foundation
 
-// Une session = une commande lancée avec `vibe`
+// ── Model d'une session (une commande lancée) ─────────────────────────────────
+
 struct CommandSession: Identifiable {
     let id = UUID()
     let command: String
@@ -14,37 +15,54 @@ struct CommandSession: Identifiable {
         guard let code = exitCode else { return "running" }
         return code == 0 ? "success" : "error"
     }
+
+    // Détecte si l'output se termine par une demande Y/n
+    var needsConfirmation: Bool {
+        let tail = String(output.suffix(600))
+        let pattern = #"(\(Y/n\)|\(y/N\)|\[Y/n\]|\[y/N\]|\(yes/no\)|\[yes/no\]|continue\?|proceed\?|\? \[y/n\])"#
+        return tail.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
 }
+
+// ── ViewModel principal ───────────────────────────────────────────────────────
 
 @MainActor
 class TerminalOutputModel: ObservableObject {
     @Published var sessions: [CommandSession] = []
     @Published var currentSessionId: UUID? = nil
+    @Published var isDashboardMode: Bool = false {
+        didSet { onDashboardToggle?(isDashboardMode) }
+    }
 
-    // Session active (dernière en cours ou terminée)
+    // Closure branchée par AppDelegate pour envoyer des données vers Node via WS
+    var sendToTerminal: ((String) -> Void)?
+
+    // Callback pour AppDelegate quand le mode dashboard change
+    var onDashboardToggle: ((Bool) -> Void)?
+
     var currentSession: CommandSession? {
         guard let id = currentSessionId else { return sessions.last }
         return sessions.first { $0.id == id }
     }
 
-    func handleMessage(_ text: String) {
-        // Signal de début de commande : \x00CLEAR\x00
-        if text == "\u{00}CLEAR\u{00}" {
-            return // le CLEAR est suivi du header $ cmd
-        }
+    // ── Ingestion des messages WebSocket ─────────────────────────────────────
 
-        // Header de commande envoyé par le CLI : "$ npm run build\n"
+    func handleMessage(_ text: String) {
+        // Réinitialisation : signal de début de commande
+        if text == "\u{00}CLEAR\u{00}" { return }
+
+        // Header de commande : "$ npm run build\n"
         if text.hasPrefix("$ ") {
-            let cmd = text.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(2)
-            let session = CommandSession(command: String(cmd), startTime: Date())
+            let cmd = String(text.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(2))
+            var session = CommandSession(command: cmd, startTime: Date())
+            session.output = ""
             sessions.append(session)
             currentSessionId = session.id
-            // Garder max 20 sessions
-            if sessions.count > 20 { sessions.removeFirst() }
+            if sessions.count > 30 { sessions.removeFirst() }
             return
         }
 
-        // Signal de fin : "[vibe] Terminé (code X)"
+        // Signal de fin de commande
         if text.hasPrefix("\n[vibe] Terminé") {
             let codeStr = text.components(separatedBy: "code ").last?
                 .trimmingCharacters(in: CharacterSet(charactersIn: ")\n "))
@@ -53,7 +71,7 @@ class TerminalOutputModel: ObservableObject {
             return
         }
 
-        // Output normal → append à la session courante
+        // Output normal
         let clean = Self.stripAnsi(text)
         if !clean.isEmpty {
             updateCurrentSession { $0.output += clean }
@@ -71,46 +89,37 @@ class TerminalOutputModel: ObservableObject {
         transform(&sessions[idx])
     }
 
-    // ── Nettoyage ANSI ────────────────────────────────────────────────────────
+    // ── Nettoyage ANSI/VT100 ─────────────────────────────────────────────────
 
     static func stripAnsi(_ raw: String) -> String {
         var s = raw
-
-        // OSC sequences : ESC ] ... BEL/ST
+        // OSC sequences
         s = s.replacingOccurrences(
             of: "\u{1B}\\]([^\u{07}\u{1B}]|\u{1B}[^\\\\])*(\u{07}|\u{1B}\\\\)",
             with: "", options: .regularExpression)
-
-        // CSI sequences : ESC [ ... final byte
+        // CSI sequences (couleurs, curseur…)
         s = s.replacingOccurrences(
             of: "\u{1B}\\[[0-9;?]*[A-Za-z~]",
             with: "", options: .regularExpression)
-
-        // DCS / PM / APC sequences
+        // DCS/PM/APC
         s = s.replacingOccurrences(
             of: "\u{1B}[PX^_].*?\u{1B}\\\\",
             with: "", options: .regularExpression)
-
         // Autres ESC 2-chars
         s = s.replacingOccurrences(
             of: "\u{1B}[^\\[\\]PX^_]",
             with: "", options: .regularExpression)
-
-        // ESC orphelins restants
+        // ESC orphelins
         s = s.replacingOccurrences(of: "\u{1B}", with: "")
-
         // Caractères de contrôle (sauf \n \t)
         s = s.replacingOccurrences(
             of: "[\\x00-\\x08\\x0B-\\x0C\\x0E-\\x1A\\x1C-\\x1F\\x7F]",
             with: "", options: .regularExpression)
-
-        // \r\n → \n  |  \r seul → SUPPRIMÉ (pas de nouvelle ligne, juste overwrite)
+        // \r\n → \n, \r seul → supprimé (overwrite TUI)
         s = s.replacingOccurrences(of: "\r\n", with: "\n")
         s = s.replacingOccurrences(of: "\r", with: "")
-
         // Lignes vides excessives
         s = s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-
         return s
     }
 }
