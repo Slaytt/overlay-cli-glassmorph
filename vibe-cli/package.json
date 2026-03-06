@@ -1,0 +1,16 @@
+{
+  "name": "vibe-cli",
+  "version": "0.1.0",
+  "description": "CLI wrapper for VibeTerminal — stream stdout/stderr to the macOS HUD",
+  "type": "module",
+  "bin": {
+    "vibe": "./index.js"
+  },
+  "scripts": {
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "ws": "^8.18.0"
+  }
+}

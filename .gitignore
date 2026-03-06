@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+node_modules/
+vibe-cli/node_modules/
