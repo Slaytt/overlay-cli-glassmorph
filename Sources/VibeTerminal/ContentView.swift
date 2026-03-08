@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject var model: TerminalOutputModel
+    @EnvironmentObject var model: SessionStore
     @State private var isHovering = false
 
     var body: some View {
@@ -55,7 +55,7 @@ struct ContentView: View {
 
 struct HeaderBar: View {
     @Binding var isHovering: Bool
-    @ObservedObject var model: TerminalOutputModel
+    @ObservedObject var model: SessionStore
 
     var body: some View {
         HStack(spacing: 8) {

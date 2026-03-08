@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: VibePanel?
-    let outputModel = TerminalOutputModel()
+    let outputModel = SessionStore()
     var wsServer: WebSocketServer?
     var statusItem: NSStatusItem?
     var globalEventMonitor: Any?
@@ -17,13 +17,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel = VibePanel(contentView: AnyView(contentView))
         panel?.orderFrontRegardless()
 
-        wsServer = WebSocketServer(model: outputModel)
+        wsServer = WebSocketServer()
         wsServer?.start()
 
-        // Closure bidirectionnelle : SwiftUI → Node via WebSocket
-        outputModel.sendToTerminal = { [weak self] text in
-            self?.wsServer?.send(text: text)
+        // Tous les messages métier sont délégués au SessionStore.
+        // ping/pong sont gérés en interne par WebSocketServer, jamais propagés ici.
+        wsServer?.onMessage = { [weak self] message in
+            self?.outputModel.handle(message)
         }
+
+        // TODO(prochain-prompt) : brancher sendToTerminal via SessionStore
+        // pour obtenir le sessionId courant et envoyer un .inputReply(sessionId:text:).
 
         // Callback pour animer la fenêtre quand le mode dashboard change
         outputModel.onDashboardToggle = { [weak self] enabled in
