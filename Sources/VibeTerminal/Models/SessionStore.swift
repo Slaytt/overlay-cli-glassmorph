@@ -186,6 +186,10 @@ class SessionStore: ObservableObject {
                 return
             }
             sessions[idx].output += data
+            if sessions[idx].output.count > 10000 {
+                sessions[idx].output = String(sessions[idx].output.suffix(8000))
+                sessions[idx].isTruncated = true
+            }
             let lines = sessions[idx].output.components(separatedBy: "\n")
             if lines.count > Self.maxOutputLines {
                 sessions[idx].output = lines.suffix(Self.maxOutputLines).joined(separator: "\n")

@@ -142,7 +142,8 @@ async function run() {
   // ── Spawn PTY ─────────────────────────────────────────────────────────────
   // TERM=dumb + NO_COLOR supprime les TUI animées (Claude Code, etc.)
   // et garantit un output texte plat, plus facile à parser.
-  const term = pty.spawn(cmdArgs[0], cmdArgs.slice(1), {
+  const shell = process.env.SHELL || "/bin/bash";
+  const term = pty.spawn(shell, ["-l", "-c", cmdArgs.join(" ")], {
     name: "dumb",
     cols: process.stdout.columns || 220,
     rows: process.stdout.rows   || 50,
@@ -153,6 +154,11 @@ async function run() {
       NO_COLOR:            "1",
       CLAUDE_NO_ANIMATION: "1",
     },
+  });
+
+  term.on("error", (err) => {
+    console.error("[vibe] Erreur PTY :", err.message);
+    process.exit(1);
   });
 
   // Buffer glissant pour la détection de prompts Y/n.

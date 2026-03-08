@@ -24,7 +24,7 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 440, minHeight: 300)
+        .frame(minWidth: 440, maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: 16).fill(.ultraThinMaterial)
